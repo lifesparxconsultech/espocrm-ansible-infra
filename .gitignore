@@ -1,0 +1,4 @@
+*.retry
+*.log
+.env
+vault.yml

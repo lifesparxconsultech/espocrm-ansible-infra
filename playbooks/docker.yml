@@ -1,0 +1,103 @@
+---
+- name: Install Docker Engine
+
+  hosts: all
+  become: true
+
+
+  tasks:
+
+
+    - name: Install required packages
+
+      apt:
+
+        name:
+
+          - ca-certificates
+          - curl
+
+        state: present
+
+
+
+    - name: Create docker key directory
+
+      file:
+
+        path: /etc/apt/keyrings
+
+        state: directory
+
+        mode: "0755"
+
+
+
+    - name: Add Docker GPG key
+
+      shell: |
+
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+        -o /etc/apt/keyrings/docker.asc
+
+        chmod a+r /etc/apt/keyrings/docker.asc
+
+
+
+    - name: Add Docker repository
+
+      shell: |
+
+        echo \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+        https://download.docker.com/linux/ubuntu \
+        $(. /etc/os-release && echo ${UBUNTU_CODENAME:-$VERSION_CODENAME}) stable" \
+        > /etc/apt/sources.list.d/docker.list
+
+
+
+    - name: Update repositories
+
+      apt:
+
+        update_cache: yes
+
+
+
+    - name: Install Docker packages
+
+      apt:
+
+        name:
+
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+
+        state: present
+
+
+
+    - name: Enable Docker
+
+      service:
+
+        name: docker
+
+        state: started
+
+        enabled: yes
+
+
+
+    - name: Add deploy user to docker group
+
+      user:
+
+        name: deploy
+
+        groups: docker
+
+        append: yes
