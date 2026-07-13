@@ -125,12 +125,15 @@ jobs:
         run: ansible-galaxy collection install -r requirements.yml
 
       - name: Setup SSH key
-        uses: shimataro/ssh-key-action@v2
-        with:
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
-          passphrase: ${{ secrets.SSH_KEY_PASSPHRASE }}
-          if_key_exists: fail
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519
+          eval $(ssh-agent -s)
+          SSH_ASKPASS_REQUIRE=never ssh-add ~/.ssh/id_ed25519 <<< "${{ secrets.SSH_KEY_PASSPHRASE }}"
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
 
       - name: Set playbook
         id: vars
@@ -145,7 +148,8 @@ jobs:
         env:
           ANSIBLE_VAULT_PASSWORD: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
         run: |
-          ansible-playbook ${{ steps.vars.outputs.playbook }}
+          echo "$ANSIBLE_VAULT_PASSWORD" > /tmp/.vault_pass
+          ansible-playbook ${{ steps.vars.outputs.playbook }} --vault-password-file /tmp/.vault_pass
 
       - name: Health Check
         if: success()
