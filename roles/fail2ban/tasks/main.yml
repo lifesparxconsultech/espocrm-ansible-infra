@@ -1,2 +1,11 @@
 ---
-# tasks file for roles/fail2ban
+- name: Install Fail2ban
+  ansible.builtin.apt:
+    name: fail2ban
+    state: present
+
+- name: Enable Fail2ban
+  ansible.builtin.service:
+    name: fail2ban
+    enabled: true
+    state: started
