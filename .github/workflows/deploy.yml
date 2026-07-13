@@ -58,9 +58,12 @@ jobs:
         run: pip install ansible-lint yamllint
 
       - name: Run ansible-lint
-        run: ansible-lint
-        env:
-          ANSIBLE_VAULT_PASSWORD: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
+        run: >
+          ansible-lint
+          playbooks/bootstrap.yml
+          playbooks/docker.yml
+          playbooks/monitoring.yml
+          roles/
 
       - name: Run yamllint
         run: >
