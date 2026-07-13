@@ -1,94 +1,11 @@
 ---
-- name: Configure production CRM server
+- name: Bootstrap Ubuntu Server
 
-  hosts: all
+  hosts: production
+
   become: true
 
-
-  tasks:
-
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-
-
-    - name: Upgrade packages
-      apt:
-        upgrade: dist
-
-
-    - name: Install base packages
-      apt:
-
-        name:
-
-          - curl
-          - wget
-          - git
-          - unzip
-          - htop
-          - nano
-          - ufw
-          - fail2ban
-          - unattended-upgrades
-          - ca-certificates
-          - gnupg
-          - tmux
-          - ncdu
-
-        state: present
-
-
-    - name: Enable automatic security updates
-      service:
-
-        name: unattended-upgrades
-        enabled: yes
-        state: started
-
-
-    - name: Allow SSH
-
-      ufw:
-
-        rule: allow
-        port: "22"
-
-
-    - name: Allow HTTP
-
-      ufw:
-
-        rule: allow
-        port: "80"
-
-
-    - name: Allow HTTPS
-
-      ufw:
-
-        rule: allow
-        port: "443"
-
-
-    - name: Enable firewall
-
-      ufw:
-
-        state: enabled
-
-
-    - name: Enable fail2ban
-
-      service:
-
-        name: fail2ban
-        enabled: yes
-        state: started
-
-
-    - name: Set timezone
-
-      timezone:
-
-        name: UTC
+  roles:
+    - common
+    - firewall
+    - fail2ban
