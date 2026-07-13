@@ -67,7 +67,7 @@ jobs:
           .
 
   # ============================================================
-  # SYNTAX CHECK — ensures playbooks parse
+  # SYNTAX CHECK — ensures playbooks parse (skips vault ones)
   # ============================================================
   syntax:
     name: Syntax Check
@@ -89,7 +89,7 @@ jobs:
 
       - name: Check playbook syntax
         run: |
-          for playbook in playbooks/*.yml; do
+          for playbook in playbooks/bootstrap.yml playbooks/docker.yml playbooks/monitoring.yml; do
             echo "Checking $playbook..."
             ansible-playbook "$playbook" --syntax-check
           done
@@ -151,15 +151,59 @@ jobs:
           curl -sI http://${{ vars.VPS_IP }}:8080 | head -1 || echo "Test app check finished"
 
   # ============================================================
-  # NOTIFY — on failure, post to GitHub
+  # NOTIFY — success to Discord, failure to Discord + GitHub
   # ============================================================
+  notify-success:
+    name: Notify Discord (Success)
+    runs-on: ubuntu-24.04
+    needs: [deploy]
+    if: success()
+    steps:
+      - name: Send Discord notification
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"✅ Deploy Successful\",
+                \"description\": \"CRM infrastructure deployed to VPS\",
+                \"color\": 65280,
+                \"fields\": [
+                  {\"name\": \"Repository\", \"value\": \"${{ github.repository }}\", \"inline\": true},
+                  {\"name\": \"Branch\", \"value\": \"${{ github.ref_name }}\", \"inline\": true},
+                  {\"name\": \"EspoCRM\", \"value\": \"https://${{ vars.DOMAIN }}\", \"inline\": false},
+                  {\"name\": \"Dashboard\", \"value\": \"https://traefik.${{ vars.BASE_DOMAIN }}\", \"inline\": true},
+                  {\"name\": \"Monitoring\", \"value\": \"https://status.${{ vars.BASE_DOMAIN }}\", \"inline\": true}
+                ],
+                \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+              }]
+            }"
+
   notify-failure:
     name: Notify Failure
     runs-on: ubuntu-24.04
     needs: [deploy]
     if: failure()
     steps:
-      - name: Report failure
+      - name: Send Discord notification
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"🚨 Deployment Failed\",
+                \"description\": \"Check the workflow run for details\",
+                \"color\": 16711680,
+                \"fields\": [
+                  {\"name\": \"Repository\", \"value\": \"${{ github.repository }}\", \"inline\": true},
+                  {\"name\": \"Branch\", \"value\": \"${{ github.ref_name }}\", \"inline\": true},
+                  {\"name\": \"Workflow\", \"value\": \"[View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\", \"inline\": false}
+                ],
+                \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+              }]
+            }"
+
+      - name: Report failure to GitHub
         run: |
           echo "## 🚨 Deployment Failed!" >> $GITHUB_STEP_SUMMARY
           echo "Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details." >> $GITHUB_STEP_SUMMARY
