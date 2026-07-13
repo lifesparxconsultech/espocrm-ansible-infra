@@ -27,6 +27,14 @@
     group: root
     mode: "0700"
 
+- name: Deploy health check script
+  ansible.builtin.template:
+    src: health-check.sh.j2
+    dest: "{{ backup_install_dir }}/health-check.sh"
+    owner: root
+    group: root
+    mode: "0700"
+
 - name: Schedule database backup cron job
   ansible.builtin.cron:
     name: "espocrm-db-backup"
@@ -48,11 +56,21 @@
       {{ backup_install_dir }}/volume-backup.sh
       >> /var/log/espocrm-backup.log 2>&1
 
+- name: Schedule daily health check (8 AM UTC = 1:30 PM IST)
+  ansible.builtin.cron:
+    name: "daily-health-check"
+    user: root
+    hour: "8"
+    minute: "0"
+    job: >
+      {{ backup_install_dir }}/health-check.sh
+
 - name: Show backup status
   ansible.builtin.debug:
     msg:
       - "Backup scripts deployed to {{ backup_install_dir }}/"
-      - "Database backup: daily at {{ backup_hour }}:{{ backup_minute }}"
-      - "Volume backup: daily at {{ backup_hour }}:{{ (backup_minute | int) + 30 }}"
+      - "Database backup: daily at {{ backup_hour }}:{{ backup_minute }} UTC"
+      - "Volume backup: daily at {{ backup_hour }}:{{ (backup_minute | int) + 30 }} UTC"
+      - "Health check: daily at 08:00 UTC"
       - "Retention: {{ backup_retention_days }} days"
       - "Logs: /var/log/espocrm-backup.log"

@@ -1,7 +1,5 @@
 #!/bin/bash
 # EspoCRM Database Backup Script
-# Run: /opt/backup/db-backup.sh
-
 set -euo pipefail
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -14,18 +12,30 @@ DB_PASSWORD="${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD not set}"
 
 mkdir -p "$BACKUP_DIR"
 
-# Dump database
 docker exec "$DB_CONTAINER" \
   mariadb-dump -u"$DB_USER" -p"$DB_PASSWORD" \
-  --single-transaction \
-  --routines \
-  --triggers \
-  --events \
+  --single-transaction --routines --triggers --events \
   "$DB_NAME" | gzip > "$BACKUP_DIR/espocrm_${TIMESTAMP}.sql.gz"
 
-# Remove old backups
 find "$BACKUP_DIR" -name "espocrm_*.sql.gz" -mtime +"$RETENTION_DAYS" -delete
 
-# Log
-echo "[$(date)] Backup complete: espocrm_${TIMESTAMP}.sql.gz ($(du -h "$BACKUP_DIR/espocrm_${TIMESTAMP}.sql.gz" | cut -f1))"
-echo "[$(date)] Current backups: $(ls -1 "$BACKUP_DIR" | wc -l) files, $(du -sh "$BACKUP_DIR" | cut -f1)"
+SIZE=$(du -h "$BACKUP_DIR/espocrm_${TIMESTAMP}.sql.gz" | cut -f1)
+COUNT=$(ls -1 "$BACKUP_DIR" | wc -l)
+
+echo "[$(date)] Backup: espocrm_${TIMESTAMP}.sql.gz ($SIZE), $COUNT files total"
+
+WEBHOOK="{{ discord_webhook | default('') }}"
+if [ -n "$WEBHOOK" ]; then
+  curl -s -X POST "$WEBHOOK" -H "Content-Type: application/json" -d "{
+    \"embeds\": [{
+      \"title\": \"Database Backup Complete\",
+      \"color\": 65280,
+      \"fields\": [
+        {\"name\":\"File\",\"value\":\"espocrm_${TIMESTAMP}.sql.gz\"},
+        {\"name\":\"Size\",\"value\":\"$SIZE\",\"inline\":true},
+        {\"name\":\"Retention\",\"value\":\"$COUNT files (${RETENTION_DAYS}d)\",\"inline\":true}
+      ],
+      \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+    }]
+  }"
+fi

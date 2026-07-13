@@ -1,0 +1,58 @@
+#!/bin/bash
+# Daily health check — runs at 8:00 AM UTC
+# Posts container status, disk, memory to Discord
+
+WEBHOOK="{{ discord_webhook }}"
+
+# Collect data
+CONTAINERS=$(docker ps --format "{{.Names}}: {{.Status}}" | tr '\n' '\\n')
+DISK=$(df -h / | awk 'NR==2{print $3"/"$2" ("$5")"}')
+MEMORY=$(free -h | awk 'NR==2{print $3"/"$2"}')
+UPTIME=$(uptime -p)
+CERTS=$(python3 -c "
+import json
+d=json.load(open('/opt/traefik/letsencrypt/acme.json'))
+certs=d['letsencrypt']['Certificates']
+for c in certs:
+    print(c['domain']['main'])
+" 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+BACKUP_COUNT=$(ls /opt/backup/database/*.gz 2>/dev/null | wc -l)
+
+# Determine status
+UNHEALTHY=$(docker ps --filter "health=unhealthy" --format "{{.Names}}" | tr '\n' ' ')
+RESTARTING=$(docker ps --filter "status=restarting" --format "{{.Names}}" | tr '\n' ' ')
+
+if [ -n "$UNHEALTHY$RESTARTING" ]; then
+  COLOR=16711680  # Red
+  TITLE="🚨 Health Alert — Issues Detected"
+else
+  COLOR=65280    # Green
+  TITLE="✅ Daily Health — All Systems Normal"
+fi
+
+# Build fields
+FIELDS=""
+FIELDS+="{\"name\":\"Uptime\",\"value\":\"$UPTIME\",\"inline\":true},"
+FIELDS+="{\"name\":\"Disk\",\"value\":\"$DISK\",\"inline\":true},"
+FIELDS+="{\"name\":\"Memory\",\"value\":\"$MEMORY\",\"inline\":true},"
+FIELDS+="{\"name\":\"Backups\",\"value\":\"$BACKUP_COUNT files\",\"inline\":true},"
+FIELDS+="{\"name\":\"SSL Certs\",\"value\":\"$CERTS\",\"inline\":false},"
+
+if [ -n "$UNHEALTHY" ]; then
+  FIELDS+="{\"name\":\"❌ Unhealthy\",\"value\":\"$UNHEALTHY\",\"inline\":false},"
+fi
+if [ -n "$RESTARTING" ]; then
+  FIELDS+="{\"name\":\"🔄 Restarting\",\"value\":\"$RESTARTING\",\"inline\":false},"
+fi
+
+# Post to Discord
+curl -s -X POST "$WEBHOOK" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"embeds\": [{
+      \"title\": \"$TITLE\",
+      \"color\": $COLOR,
+      \"fields\": [${FIELDS%,}],
+      \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+    }]
+  }"
