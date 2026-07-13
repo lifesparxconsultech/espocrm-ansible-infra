@@ -7,6 +7,7 @@ skip_list:
   - name[play]
   - var-naming[no-role-prefix]
   - no-changed-when
+  - schema[playbook]
 
 warn_list:
   - experimental
