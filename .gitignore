@@ -2,3 +2,4 @@
 *.log
 .env
 vault.yml
+.vault_pass
