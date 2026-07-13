@@ -1,19 +1,13 @@
 ---
 # ansible-lint configuration
 skip_list:
-  - name[missing]          # import_tasks don't need names
-  - fqcn[action-core]      # shorthand import_tasks is fine
-  - schema[meta]           # galaxy metadata not needed
-  - name[play]             # play names optional
-  - var-naming[no-role-prefix]  # role prefixes not needed
-  - risk-level             # test files
-  - name[casing]           # casing in task names
+  - metadata
+  - name[missing]
+  - fqcn[action-core]
+  - name[play]
+  - var-naming[no-role-prefix]
+  - no-changed-when
 
 warn_list:
   - experimental
-
-exclude_paths:
-  - .github/
-  - roles/*/tests/
-  - roles/*/meta/
-  - vault/
+  - schema[playbook]
