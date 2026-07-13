@@ -92,7 +92,6 @@ crm-infrastructure/
 │
 └── tests/
     └── ansible/
-```bash
 
 # Workflow Design Diagram
 
