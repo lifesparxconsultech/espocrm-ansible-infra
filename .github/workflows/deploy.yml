@@ -59,6 +59,8 @@ jobs:
 
       - name: Run ansible-lint
         run: ansible-lint
+        env:
+          ANSIBLE_VAULT_PASSWORD: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
 
       - name: Run yamllint
         run: >
