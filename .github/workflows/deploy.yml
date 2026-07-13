@@ -124,6 +124,7 @@ jobs:
         with:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          passphrase: ${{ secrets.SSH_KEY_PASSPHRASE }}
           if_key_exists: fail
 
       - name: Set playbook
