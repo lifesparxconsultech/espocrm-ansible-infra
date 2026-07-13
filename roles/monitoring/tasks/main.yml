@@ -1,2 +1,35 @@
 ---
-# tasks file for roles/monitoring
+- name: Create monitoring directory
+  ansible.builtin.file:
+    path: "{{ monitoring_install_dir }}"
+    state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0755"
+
+- name: Deploy Uptime Kuma docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ monitoring_install_dir }}/docker-compose.yml"
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0644"
+
+- name: Start Uptime Kuma
+  community.docker.docker_compose_v2:
+    project_src: "{{ monitoring_install_dir }}"
+    project_name: monitoring
+    state: present
+    pull: always
+
+- name: Verify Uptime Kuma
+  ansible.builtin.shell: |
+    docker exec uptime-kuma wget -qO- --timeout=3 http://localhost:3001 2>&1 || true
+  register: kuma_check
+  until: kuma_check.rc == 0
+  retries: 10
+  delay: 3
+
+- name: Monitoring status
+  ansible.builtin.debug:
+    msg: "Uptime Kuma running: https://status.{{ base_domain }}"

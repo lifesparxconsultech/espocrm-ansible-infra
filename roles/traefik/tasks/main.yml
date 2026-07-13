@@ -1,2 +1,109 @@
 ---
-# tasks file for roles/traefik
+- name: Install htpasswd for basic auth
+  ansible.builtin.apt:
+    name: apache2-utils
+    state: present
+
+- name: Create Traefik directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0755"
+  loop:
+    - "{{ traefik_install_dir }}"
+    - "{{ traefik_install_dir }}/dynamic"
+    - "{{ traefik_install_dir }}/logs"
+    - "{{ traefik_install_dir }}/letsencrypt"
+
+- name: Set restrictive permission on letsencrypt directory
+  ansible.builtin.file:
+    path: "{{ traefik_install_dir }}/letsencrypt"
+    mode: "0755"
+
+- name: Create empty acme.json with secure permissions
+  ansible.builtin.file:
+    path: "{{ traefik_install_dir }}/letsencrypt/acme.json"
+    state: touch
+    owner: root
+    group: root
+    mode: "0600"
+    modification_time: preserve
+    access_time: preserve
+
+- name: Generate Traefik dashboard auth if not set
+  ansible.builtin.shell:
+    cmd: |
+      if [ "{{ traefik_dashboard_auth | default('') }}" = "admin:$2y$10$dummyhashreplaceme" ] || [ -z "{{ traefik_dashboard_auth | default('') }}" ]; then
+        PASS=$(openssl rand -base64 16)
+        echo "Generated dashboard password: $PASS" > {{ traefik_install_dir }}/.dashboard-password
+        chmod 600 {{ traefik_install_dir }}/.dashboard-password
+        htpasswd -nbB admin "$PASS"
+      else
+        echo "{{ traefik_dashboard_auth }}"
+      fi
+  register: dashboard_auth_result
+  changed_when: false
+
+- name: Set dashboard auth fact
+  ansible.builtin.set_fact:
+    traefik_dashboard_auth: "{{ dashboard_auth_result.stdout }}"
+
+- name: Deploy Traefik static configuration
+  ansible.builtin.template:
+    src: traefik.yml.j2
+    dest: "{{ traefik_install_dir }}/traefik.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload Traefik
+
+- name: Deploy Traefik dynamic configuration
+  ansible.builtin.template:
+    src: dynamic.yml.j2
+    dest: "{{ traefik_install_dir }}/dynamic/dynamic.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload Traefik
+
+- name: Deploy Traefik docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ traefik_install_dir }}/docker-compose.yml"
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0644"
+
+- name: Start Traefik
+  community.docker.docker_compose_v2:
+    project_src: "{{ traefik_install_dir }}"
+    project_name: traefik
+    state: present
+    pull: always
+    remove_orphans: true
+
+- name: Verify Traefik is running
+  ansible.builtin.uri:
+    url: http://localhost:80
+    return_content: false
+    status_code: [301, 302, 404, 200]
+    validate_certs: false
+    follow_redirects: safe
+  register: traefik_check
+  until: traefik_check is success
+  retries: 10
+  delay: 3
+
+- name: Show dashboard password if auto-generated
+  ansible.builtin.shell: cat {{ traefik_install_dir }}/.dashboard-password 2>/dev/null || true
+  register: dashboard_pwd_file
+  changed_when: false
+
+- name: Traefik status
+  ansible.builtin.debug:
+    msg:
+      - "Traefik running - HTTP check returned {{ traefik_check.status }}"
+      - "Dashboard: https://traefik.{{ base_domain }}"
+      - "{% if dashboard_pwd_file.stdout %}Dashboard password: {{ dashboard_pwd_file.stdout }}{% endif %}"

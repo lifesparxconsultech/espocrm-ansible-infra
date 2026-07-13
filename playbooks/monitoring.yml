@@ -1,0 +1,7 @@
+---
+- name: Deploy monitoring stack
+  hosts: production
+  become: true
+
+  roles:
+    - monitoring

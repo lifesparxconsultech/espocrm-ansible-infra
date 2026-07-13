@@ -1,0 +1,30 @@
+---
+# Docker system prune and cleanup
+# Safe to run anytime
+
+- name: Docker system cleanup
+  hosts: production
+  become: true
+
+  vars_files:
+    - ../vault/secrets.yml
+
+  tasks:
+    - name: Prune unused Docker resources
+      community.docker.docker_prune:
+        containers: true
+        images: true
+        images_filters:
+          dangling: false
+        networks: true
+        volumes: false
+        builder_cache: true
+        timeout: 120
+
+    - name: Show Docker disk usage
+      ansible.builtin.shell: docker system df
+      register: docker_df
+
+    - name: Disk usage report
+      ansible.builtin.debug:
+        msg: "{{ docker_df.stdout_lines }}"

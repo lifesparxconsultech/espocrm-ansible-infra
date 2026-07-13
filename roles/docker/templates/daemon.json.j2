@@ -1,0 +1,21 @@
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3",
+    "labels": "production_status",
+    "env": "os,customer"
+  },
+  "storage-driver": "overlay2",
+  "metrics-addr": "0.0.0.0:9323",
+  "experimental": false,
+  "live-restore": true,
+  "userland-proxy": false,
+  "ip6tables": false,
+  "default-address-pools": [
+    {
+      "base": "172.17.0.0/16",
+      "size": 24
+    }
+  ]
+}

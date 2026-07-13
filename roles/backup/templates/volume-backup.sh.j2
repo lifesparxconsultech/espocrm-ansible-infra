@@ -1,0 +1,28 @@
+#!/bin/bash
+# Volume Backup Script — backs up named Docker volumes
+# Run: /opt/backup/volume-backup.sh
+
+set -euo pipefail
+
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BACKUP_DIR="/opt/backup/volumes"
+RETENTION_DAYS={{ backup_retention_days }}
+
+mkdir -p "$BACKUP_DIR"
+
+# Backup EspoCRM volumes
+for vol in espocrm_data espocrm_custom espocrm_client; do
+  if docker volume ls -q | grep -q "^${vol}$"; then
+    docker run --rm \
+      -v "${vol}:/source:ro" \
+      -v "${BACKUP_DIR}:/backup" \
+      alpine:latest \
+      tar czf "/backup/${vol}_${TIMESTAMP}.tar.gz" -C /source .
+    echo "[$(date)] Volume backed up: ${vol}_${TIMESTAMP}.tar.gz"
+  fi
+done
+
+# Cleanup old backups
+find "$BACKUP_DIR" -name "*.tar.gz" -mtime +"$RETENTION_DAYS" -delete
+
+echo "[$(date)] Volume backup complete. Current: $(ls -1 "$BACKUP_DIR" | wc -l) files"

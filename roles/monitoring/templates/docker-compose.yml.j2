@@ -1,0 +1,18 @@
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:{{ uptime_kuma_version }}
+    container_name: uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - /opt/monitoring/data:/app/data
+    networks:
+      - traefik_web
+    healthcheck:
+      test: ["CMD", "extra/healthcheck"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+networks:
+  traefik_web:
+    external: true

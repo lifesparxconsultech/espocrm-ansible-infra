@@ -1,2 +1,73 @@
 ---
-# tasks file for roles/espocrm
+- name: Create EspoCRM directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0755"
+  loop:
+    - "{{ espocrm_install_dir }}"
+    - "{{ espocrm_install_dir }}/mysql-conf"
+
+- name: Deploy MariaDB configuration
+  ansible.builtin.template:
+    src: my.cnf.j2
+    dest: "{{ espocrm_install_dir }}/mysql-conf/my.cnf"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Deploy EspoCRM docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ espocrm_install_dir }}/docker-compose.yml"
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0640"
+
+- name: Start EspoCRM stack (database first)
+  community.docker.docker_compose_v2:
+    project_src: "{{ espocrm_install_dir }}"
+    project_name: espocrm
+    state: present
+    pull: always
+    remove_orphans: true
+    services:
+      - espocrm-db
+      - espocrm-redis
+
+- name: Wait for database to be ready
+  ansible.builtin.pause:
+    seconds: 15
+
+- name: Start EspoCRM application
+  community.docker.docker_compose_v2:
+    project_src: "{{ espocrm_install_dir }}"
+    project_name: espocrm
+    state: present
+    pull: always
+    remove_orphans: true
+
+- name: Wait for EspoCRM to initialize
+  ansible.builtin.uri:
+    url: http://localhost/api/v1/
+    return_content: false
+    status_code: [200, 401, 403, 404]
+    validate_certs: false
+    follow_redirects: safe
+  register: espocrm_check
+  until: espocrm_check is success
+  retries: 20
+  delay: 6
+
+- name: EspoCRM deployment status
+  ansible.builtin.debug:
+    msg:
+      - "EspoCRM deployed: https://{{ domain }}"
+      - "API check: HTTP {{ espocrm_check.status }}"
+      - "=== IMPORTANT ==="
+      - "Complete setup at https://{{ domain }}/"
+      - "Default admin: {{ espocrm_admin_user | default('admin') }}"
+      - "Database volume: espocrm_db_data"
+      - "Run 'make backup' to set up automated backups"

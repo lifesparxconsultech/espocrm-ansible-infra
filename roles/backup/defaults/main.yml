@@ -1,2 +1,5 @@
 ---
-# defaults file for roles/backup
+backup_install_dir: /opt/backup
+backup_retention_days: 14
+backup_hour: "2"
+backup_minute: "0"

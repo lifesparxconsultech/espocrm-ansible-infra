@@ -1,5 +1,5 @@
 ---
-- name: Deploy backup system
+- name: Deploy Traefik + Docker Platform
   hosts: production
   become: true
 
@@ -7,4 +7,5 @@
     - ../vault/secrets.yml
 
   roles:
-    - backup
+    - docker
+    - traefik

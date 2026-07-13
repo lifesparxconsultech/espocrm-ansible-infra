@@ -1,2 +1,9 @@
 ---
-# defaults file for roles/docker
+docker_user: deploy
+
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin

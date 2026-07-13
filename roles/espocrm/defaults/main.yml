@@ -1,2 +1,10 @@
 ---
-# defaults file for roles/espocrm
+espocrm_install_dir: /opt/espocrm
+espocrm_version: "8.4"
+espocrm_db_name: espocrm
+espocrm_db_user: espocrm
+espocrm_db_container: espocrm-db
+espocrm_redis_container: espocrm-redis
+
+# Default ports (internal only, Traefik handles external)
+espocrm_web_port: "8080"

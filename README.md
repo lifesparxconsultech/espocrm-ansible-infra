@@ -139,4 +139,4 @@ crm-infrastructure/
                 ├── Health checks
                 ├── Log rotation
                 └── Certificate maintenance
-```bash
+```

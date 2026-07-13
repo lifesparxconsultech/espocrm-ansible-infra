@@ -1,0 +1,150 @@
+services:
+  # ============================================================
+  # EspoCRM — PHP/Apache application
+  # ============================================================
+  espocrm:
+    image: espocrm/espocrm:{{ espocrm_version }}
+    container_name: espocrm
+    restart: unless-stopped
+    depends_on:
+      espocrm-db:
+        condition: service_healthy
+      espocrm-redis:
+        condition: service_healthy
+    networks:
+      - traefik_web
+      - backend
+    volumes:
+      - espocrm_data:/var/www/html/data
+      - espocrm_custom:/var/www/html/custom
+      - espocrm_client:/var/www/html/client
+    environment:
+      ESPOCRM_DATABASE_HOST: espocrm-db
+      ESPOCRM_DATABASE_PORT: "3306"
+      ESPOCRM_DATABASE_NAME: "{{ espocrm_db_name }}"
+      ESPOCRM_DATABASE_USER: "{{ espocrm_db_user }}"
+      ESPOCRM_DATABASE_PASSWORD: "{{ espocrm_db_password }}"
+      ESPOCRM_ADMIN_USERNAME: "{{ espocrm_admin_user | default('admin') }}"
+      ESPOCRM_ADMIN_PASSWORD: "{{ espocrm_admin_password }}"
+      ESPOCRM_SITE_URL: "https://{{ domain }}"
+      ESPOCRM_REDIS_HOST: espocrm-redis
+      ESPOCRM_REDIS_PORT: "6379"
+      ESPOCRM_CONFIG_SMTP_SERVER: "{{ espocrm_smtp_server | default('') }}"
+      ESPOCRM_CONFIG_SMTP_PORT: "{{ espocrm_smtp_port | default('587') }}"
+      ESPOCRM_CONFIG_SMTP_AUTH: "true"
+      ESPOCRM_CONFIG_SMTP_SECURITY: "{{ espocrm_smtp_security | default('TLS') }}"
+      ESPOCRM_CONFIG_SMTP_USERNAME: "{{ espocrm_smtp_username | default('') }}"
+      ESPOCRM_CONFIG_SMTP_PASSWORD: "{{ espocrm_smtp_password | default('') }}"
+      TZ: "{{ common_timezone | default('UTC') }}"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.espocrm.rule=Host(`{{ domain }}`)"
+      - "traefik.http.routers.espocrm.entrypoints=websecure"
+      - "traefik.http.routers.espocrm.tls.certresolver=letsencrypt"
+      - "traefik.http.services.espocrm.loadbalancer.server.port=80"
+      - "traefik.http.routers.espocrm.middlewares=security-headers@file,compress@file"
+      # Optional www redirect
+      - "traefik.http.routers.espocrm-www.rule=Host(`www.{{ domain }}`)"
+      - "traefik.http.routers.espocrm-www.entrypoints=websecure"
+      - "traefik.http.routers.espocrm-www.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.espocrm-www.middlewares=redirect-to-non-www"
+      - "traefik.http.middlewares.redirect-to-non-www.redirectregex.regex=^https://www\\.(.*)"
+      - "traefik.http.middlewares.redirect-to-non-www.redirectregex.replacement=https://$${1}"
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://localhost/api/v1/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # ============================================================
+  # MariaDB — Database
+  # ============================================================
+  espocrm-db:
+    image: mariadb:11.4
+    container_name: espocrm-db
+    restart: unless-stopped
+    networks:
+      - backend
+    volumes:
+      - espocrm_db_data:/var/lib/mysql
+      - /opt/espocrm/mysql-conf:/etc/mysql/conf.d:ro
+    environment:
+      MARIADB_ROOT_PASSWORD: "{{ espocrm_db_root_password | default(espocrm_db_password) }}"
+      MARIADB_DATABASE: "{{ espocrm_db_name }}"
+      MARIADB_USER: "{{ espocrm_db_user }}"
+      MARIADB_PASSWORD: "{{ espocrm_db_password }}"
+      MARIADB_CHARACTER_SET: utf8mb4
+      MARIADB_COLLATE: utf8mb4_unicode_ci
+    command: >
+      --max-allowed-packet=128M
+      --innodb-buffer-pool-size=256M
+      --innodb-log-file-size=64M
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # ============================================================
+  # Redis — Cache and session store
+  # ============================================================
+  espocrm-redis:
+    image: redis:7-alpine
+    container_name: espocrm-redis
+    restart: unless-stopped
+    networks:
+      - backend
+    volumes:
+      - espocrm_redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+
+volumes:
+  espocrm_data:
+    name: espocrm_data
+  espocrm_custom:
+    name: espocrm_custom
+  espocrm_client:
+    name: espocrm_client
+  espocrm_db_data:
+    name: espocrm_db_data
+  espocrm_redis_data:
+    name: espocrm_redis_data
+
+networks:
+  traefik_web:
+    external: true
+  backend:
+    external: true

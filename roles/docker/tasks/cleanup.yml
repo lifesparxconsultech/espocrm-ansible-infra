@@ -1,0 +1,34 @@
+---
+- name: Deploy Docker cleanup cron job
+  ansible.builtin.cron:
+    name: "docker-system-prune"
+    user: root
+    hour: "3"
+    minute: "0"
+    job: >
+      /usr/bin/docker system prune -af --filter "until=168h" > /var/log/docker-prune.log 2>&1
+
+- name: Deploy log rotation for Docker
+  ansible.builtin.copy:
+    content: |
+      /var/lib/docker/containers/*/*.log {
+          rotate 7
+          daily
+          compress
+          missingok
+          delaycompress
+          copytruncate
+      }
+    dest: /etc/logrotate.d/docker-containers
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Volume cleanup (unused volumes older than 7 days)
+  ansible.builtin.cron:
+    name: "docker-volume-prune"
+    user: root
+    hour: "4"
+    minute: "30"
+    job: >
+      /usr/bin/docker volume prune -f --filter "all=1" > /var/log/docker-volume-prune.log 2>&1

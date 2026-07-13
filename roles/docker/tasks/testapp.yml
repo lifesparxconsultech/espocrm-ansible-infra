@@ -1,0 +1,40 @@
+---
+- name: Create test app directory
+  ansible.builtin.file:
+    path: /opt/test-app
+    state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0755"
+
+- name: Deploy Nginx test application
+  community.docker.docker_container:
+    name: test-app
+    image: nginx:alpine
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "8080:80"
+    networks:
+      - name: traefik_web
+    labels:
+      com.company.app: "test-app"
+      traefik.enable: "false"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+- name: Wait for test app to be healthy
+  ansible.builtin.uri:
+    url: http://localhost:8080
+    return_content: false
+  register: test_result
+  until: test_result.status == 200
+  retries: 10
+  delay: 3
+
+- name: Report test app status
+  ansible.builtin.debug:
+    msg: "Test app running on :8080 - HTTP {{ test_result.status }}"

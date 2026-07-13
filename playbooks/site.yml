@@ -1,5 +1,10 @@
 ---
+# One-shot: Full infrastructure deploy
+# Run this to set up everything from scratch
+
 - import_playbook: bootstrap.yml
 - import_playbook: docker.yml
-#- import_playbook: monitoring.yml
-#- import_playbook: backup.yml
+- import_playbook: traefik.yml
+- import_playbook: espocrm.yml
+- import_playbook: monitoring.yml
+- import_playbook: backup.yml

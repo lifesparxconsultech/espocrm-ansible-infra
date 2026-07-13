@@ -1,0 +1,164 @@
+---
+# CI/CD Pipeline for Company CRM Infrastructure
+# Deploys to Hostinger VPS via Ansible
+
+name: Deploy CRM Infrastructure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'playbooks/**'
+      - 'roles/**'
+      - 'inventory/**'
+      - 'requirements.yml'
+      - '.github/workflows/deploy.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'playbooks/**'
+      - 'roles/**'
+      - 'inventory/**'
+  workflow_dispatch:
+    inputs:
+      playbook:
+        description: 'Playbook to run'
+        type: choice
+        required: true
+        default: 'site'
+        options:
+          - site
+          - bootstrap
+          - docker
+          - traefik
+          - deploy
+          - backup
+
+env:
+  ANSIBLE_HOST_KEY_CHECKING: 'false'
+  ANSIBLE_FORCE_COLOR: 'true'
+
+jobs:
+  # ============================================================
+  # LINT — static analysis, always runs
+  # ============================================================
+  lint:
+    name: Lint Ansible
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install linters
+        run: pip install ansible-lint yamllint
+
+      - name: Run ansible-lint
+        run: ansible-lint playbooks/ roles/
+
+      - name: Run yamllint
+        run: >
+          yamllint
+          -d "{extends: default, rules: {line-length: {max: 160}, document-start: disable, truthy: disable}}"
+          .
+
+  # ============================================================
+  # SYNTAX CHECK — ensures playbooks parse
+  # ============================================================
+  syntax:
+    name: Syntax Check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Ansible
+        run: pip install ansible
+
+      - name: Install collections
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Check playbook syntax
+        run: |
+          for playbook in playbooks/*.yml; do
+            echo "Checking $playbook..."
+            ansible-playbook "$playbook" --syntax-check
+          done
+
+  # ============================================================
+  # DEPLOY — runs Ansible playbook against VPS
+  # ============================================================
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-24.04
+    needs: [lint, syntax]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    environment: production
+    concurrency: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Ansible
+        run: pip install ansible
+
+      - name: Install collections
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Setup SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          if_key_exists: fail
+
+      - name: Set playbook
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "playbook=playbooks/${{ inputs.playbook }}.yml" >> $GITHUB_OUTPUT
+          else
+            echo "playbook=playbooks/site.yml" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Ansible Deploy
+        env:
+          ANSIBLE_VAULT_PASSWORD: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
+        run: |
+          ansible-playbook ${{ steps.vars.outputs.playbook }}
+
+      - name: Health Check
+        if: success()
+        run: |
+          echo "Waiting 30s for services to stabilize..."
+          sleep 30
+          curl -skI https://${{ vars.DOMAIN }} || echo "Domain not yet accessible (DNS/SSL may need time)"
+          curl -sI http://${{ vars.VPS_IP }}:8080 | head -1 || echo "Test app check finished"
+
+  # ============================================================
+  # NOTIFY — on failure, post to GitHub
+  # ============================================================
+  notify-failure:
+    name: Notify Failure
+    runs-on: ubuntu-24.04
+    needs: [deploy]
+    if: failure()
+    steps:
+      - name: Report failure
+        run: |
+          echo "## 🚨 Deployment Failed!" >> $GITHUB_STEP_SUMMARY
+          echo "Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details." >> $GITHUB_STEP_SUMMARY

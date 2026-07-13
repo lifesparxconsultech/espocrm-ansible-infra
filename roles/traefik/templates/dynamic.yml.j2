@@ -1,0 +1,75 @@
+http:
+  middlewares:
+    security-headers:
+      headers:
+        frameDeny: true
+        sslRedirect: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customFrameOptionsValue: "SAMEORIGIN"
+        referrerPolicy: "strict-origin-when-cross-origin"
+        permissionsPolicy: "camera=(), microphone=(), geolocation=()"
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: 1s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+    compress:
+      compress:
+        excludedContentTypes:
+          - text/event-stream
+    redirect-to-non-www:
+      redirectRegex:
+        regex: "^https://www\\.(.*)"
+        replacement: "https://${1}"
+    auth-dashboard:
+      basicAuth:
+        users:
+          - "{{ traefik_dashboard_auth }}"
+
+  routers:
+    espocrm:
+      rule: "Host(`{{ domain }}`)"
+      entryPoints: ["websecure"]
+      tls:
+        certResolver: letsencrypt
+      middlewares: ["security-headers@file", "compress@file"]
+      service: espocrm
+    espocrm-www:
+      rule: "Host(`www.{{ domain }}`)"
+      entryPoints: ["websecure"]
+      tls:
+        certResolver: letsencrypt
+      middlewares: ["redirect-to-non-www@file"]
+      service: noop@internal
+    uptime-kuma:
+      rule: "Host(`status.{{ base_domain }}`)"
+      entryPoints: ["websecure"]
+      tls:
+        certResolver: letsencrypt
+      middlewares: ["security-headers@file", "rate-limit@file"]
+      service: uptime-kuma
+    dashboard:
+      rule: "Host(`traefik.{{ base_domain }}`)"
+      entryPoints: ["websecure"]
+      tls:
+        certResolver: letsencrypt
+      middlewares: ["auth-dashboard", "security-headers@file"]
+      service: api@internal
+
+  services:
+    espocrm:
+      loadBalancer:
+        servers:
+          - url: "http://espocrm:80"
+    uptime-kuma:
+      loadBalancer:
+        servers:
+          - url: "http://uptime-kuma:3001"

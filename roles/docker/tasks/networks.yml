@@ -1,0 +1,27 @@
+---
+- name: Create traefik_web network (external-facing)
+  community.docker.docker_network:
+    name: traefik_web
+    driver: bridge
+    ipam_config:
+      - subnet: 172.20.0.0/24
+    labels:
+      com.company.network: "external"
+  register: network_web
+
+- name: Create backend network (internal services)
+  community.docker.docker_network:
+    name: backend
+    driver: bridge
+    internal: true
+    ipam_config:
+      - subnet: 172.21.0.0/24
+    labels:
+      com.company.network: "internal"
+  register: network_backend
+
+- name: Show network summary
+  ansible.builtin.debug:
+    msg:
+      - "traefik_web: {{ network_web.exists | default('created') }}"
+      - "backend: {{ network_backend.exists | default('created') }}"

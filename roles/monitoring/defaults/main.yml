@@ -1,2 +1,3 @@
 ---
-# defaults file for roles/monitoring
+monitoring_install_dir: /opt/monitoring
+uptime_kuma_version: "latest"

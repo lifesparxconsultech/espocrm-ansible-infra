@@ -1,0 +1,13 @@
+---
+# Full EspoCRM deployment
+# Requires: Docker + Traefik already running
+
+- name: Deploy EspoCRM stack
+  hosts: production
+  become: true
+
+  vars_files:
+    - ../vault/secrets.yml
+
+  roles:
+    - espocrm

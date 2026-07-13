@@ -1,0 +1,32 @@
+---
+services:
+  traefik:
+    image: traefik:{{ traefik_version }}
+    container_name: traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - traefik_web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /opt/traefik/traefik.yml:/traefik.yml:ro
+      - /opt/traefik/dynamic:/etc/traefik/dynamic:ro
+      - /opt/traefik/logs:/var/log/traefik
+      - /opt/traefik/letsencrypt:/letsencrypt
+    environment:
+      - CF_API_EMAIL={{ cloudflare_email }}
+      - CF_DNS_API_TOKEN={{ cloudflare_api_token }}
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping.entrypoint=ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+networks:
+  traefik_web:
+    external: true

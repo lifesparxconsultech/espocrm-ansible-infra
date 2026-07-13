@@ -1,2 +1,7 @@
 ---
-# tasks file for roles/docker
+- import_tasks: install.yml
+- import_tasks: users.yml
+- import_tasks: daemon.yml
+- import_tasks: networks.yml
+- import_tasks: testapp.yml
+- import_tasks: cleanup.yml

@@ -1,2 +1,58 @@
 ---
-# tasks file for roles/backup
+- name: Create backup directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ docker_user }}"
+    group: "{{ docker_user }}"
+    mode: "0755"
+  loop:
+    - "{{ backup_install_dir }}"
+    - "{{ backup_install_dir }}/database"
+    - "{{ backup_install_dir }}/volumes"
+
+- name: Deploy database backup script
+  ansible.builtin.template:
+    src: db-backup.sh.j2
+    dest: "{{ backup_install_dir }}/db-backup.sh"
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Deploy volume backup script
+  ansible.builtin.template:
+    src: volume-backup.sh.j2
+    dest: "{{ backup_install_dir }}/volume-backup.sh"
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Schedule database backup cron job
+  ansible.builtin.cron:
+    name: "espocrm-db-backup"
+    user: root
+    hour: "{{ backup_hour }}"
+    minute: "{{ backup_minute }}"
+    job: >
+      MYSQL_ROOT_PASSWORD='{{ espocrm_db_password }}'
+      {{ backup_install_dir }}/db-backup.sh
+      >> /var/log/espocrm-backup.log 2>&1
+
+- name: Schedule volume backup cron job
+  ansible.builtin.cron:
+    name: "espocrm-volume-backup"
+    user: root
+    hour: "{{ backup_hour }}"
+    minute: "{{ (backup_minute | int) + 30 }}"
+    job: >
+      {{ backup_install_dir }}/volume-backup.sh
+      >> /var/log/espocrm-backup.log 2>&1
+
+- name: Show backup status
+  ansible.builtin.debug:
+    msg:
+      - "Backup scripts deployed to {{ backup_install_dir }}/"
+      - "Database backup: daily at {{ backup_hour }}:{{ backup_minute }}"
+      - "Volume backup: daily at {{ backup_hour }}:{{ (backup_minute | int) + 30 }}"
+      - "Retention: {{ backup_retention_days }} days"
+      - "Logs: /var/log/espocrm-backup.log"
