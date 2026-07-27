@@ -10,8 +10,13 @@ WEBHOOK="{{ discord_webhook | default('') }}"
 
 # CPU
 CPU_LOAD=$(uptime | awk -F'load average:' '{print $2}' | xargs)
-CPU_PCT=$(top -bn1 | grep "Cpu(s)" | awk '{print 100-$8 "%"}')
 CPU_CORES=$(nproc)
+# CPU usage from /proc/stat (average over all cores)
+read CPU_A CPU_B < <(grep '^cpu ' /proc/stat | awk '{print $2+$3+$4, $2+$3+$4+$5+$6+$7+$8}')
+sleep 1
+read CPU_C CPU_D < <(grep '^cpu ' /proc/stat | awk '{print $2+$3+$4, $2+$3+$4+$5+$6+$7+$8}')
+CPU_PCT=$(( 100 * (CPU_C - CPU_A) / (CPU_D - CPU_B) ))
+[ "$CPU_PCT" -gt 100 ] && CPU_PCT=100
 
 # RAM
 RAM_TOTAL=$(free -h | awk 'NR==2{print $2}')
@@ -77,7 +82,7 @@ curl -s -X POST "$WEBHOOK" -H "Content-Type: application/json" -d "{
     \"title\": \"$TITLE\",
     \"color\": $COLOR,
     \"fields\": [
-      {\"name\":\"CPU\",\"value\":\"Load: $CPU_LOAD\nUsage: $CPU_PCT ($CPU_CORES cores)\",\"inline\":true},
+      {\"name\":\"CPU\",\"value\":\"Load: $CPU_LOAD\\nUsage: ${CPU_PCT}% ($CPU_CORES cores)\",\"inline\":true},
       {\"name\":\"RAM\",\"value\":\"$RAM_USED / $RAM_TOTAL ($RAM_PCT%)\nSwap: $SWAP_USED / $SWAP_TOTAL\",\"inline\":true},
       {\"name\":\"Disk\",\"value\":\"Root: $DISK_ROOT\nDB backups: $DB_BACKUPS | Vol: $VOL_BACKUPS\",\"inline\":true},
       {\"name\":\"Network\",\"value\":\"RX: $RX_BYTES | TX: $TX_BYTES\",\"inline\":true},
