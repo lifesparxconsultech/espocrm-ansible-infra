@@ -56,11 +56,11 @@
       {{ backup_install_dir }}/volume-backup.sh
       >> /var/log/espocrm-backup.log 2>&1
 
-- name: Schedule daily health check (8 AM UTC = 1:30 PM IST)
+- name: Schedule health check (every 3 hours)
   ansible.builtin.cron:
-    name: "daily-health-check"
+    name: "health-check"
     user: root
-    hour: "8"
+    hour: "*/3"
     minute: "0"
     job: >
       {{ backup_install_dir }}/health-check.sh
