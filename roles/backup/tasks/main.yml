@@ -71,6 +71,6 @@
       - "Backup scripts deployed to {{ backup_install_dir }}/"
       - "Database backup: daily at {{ backup_hour }}:{{ backup_minute }} UTC"
       - "Volume backup: daily at {{ backup_hour }}:{{ (backup_minute | int) + 30 }} UTC"
-      - "Health check: daily at 08:00 UTC"
+      - "Health check: every 3 hours (UTC)"
       - "Retention: {{ backup_retention_days }} days"
       - "Logs: /var/log/espocrm-backup.log"
