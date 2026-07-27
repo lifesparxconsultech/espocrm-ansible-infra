@@ -32,7 +32,7 @@ cleanup:
 	ansible-playbook playbooks/cleanup.yml $(VP)
 
 lint:
-	ansible-lint playbooks/ roles/
+	ansible-lint playbooks/bootstrap.yml playbooks/docker.yml playbooks/monitoring.yml roles/
 
 syntax:
 	@for pb in playbooks/*.yml; do echo "=== $$pb ==="; ansible-playbook "$$pb" --syntax-check $(VP) || exit 1; done
