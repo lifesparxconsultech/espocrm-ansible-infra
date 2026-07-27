@@ -67,11 +67,11 @@ ISSUES=""
 
 if [ -n "$ISSUES" ]; then
   COLOR=16711680  # Red
-  TITLE="Server Health Alert"
+  TITLE="🖥️ VPS CRITICAL"
   ISSUE_FIELD=",\"name\":\"Issues\",\"value\":\"$ISSUES\",\"inline\":false"
 else
   COLOR=3447003   # Blue
-  TITLE="Server Health Report"
+  TITLE="🖥️ VPS Health"
   ISSUE_FIELD=""
 fi
 
@@ -93,7 +93,7 @@ curl -s -X POST "$WEBHOOK" -H "Content-Type: application/json" -d "{
       {\"name\":\"Top CPU\",\"value\":\"$TOP_PROCS\",\"inline\":false}
       $ISSUE_FIELD
     ],
-    \"footer\": {\"text\": \"Every 3 hours | $UP uptime\"},
+    \"footer\": {\"text\": \"VPS Cron | every 3h | $UP uptime\"},
     \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
   }]
 }"

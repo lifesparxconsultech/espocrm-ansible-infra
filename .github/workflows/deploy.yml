@@ -175,7 +175,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{
               "embeds": [{
-                "title": "Deploy Successful",
+                "title": "🚀 CI/CD: Deploy Success",
                 "description": "CRM infrastructure deployed to VPS",
                 "color": 65280,
                 "fields": [
@@ -195,7 +195,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{
               "embeds": [{
-                "title": "Deployment Failed",
+                "title": "🚨 CI/CD: Deploy Failed",
                 "description": "[View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})",
                 "color": 16711680,
                 "fields": [
