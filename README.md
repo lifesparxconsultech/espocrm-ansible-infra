@@ -356,3 +356,5 @@ ssh deploy@200.97.165.13 'sudo tail -50 /var/log/espocrm-backup.log'
 7. **The 418 HTTP status** from curl is EspoCRM's CSRF protection — not an error. Browsers get HTTP 200.
 8. **Traefik dashboard auth** is auto-generated on first deploy. Password saved at `/opt/traefik/.dashboard-password` on the VPS.
 9. **Permissions:** `/opt/traefik/letsencrypt/acme.json` must be 0600. The deploy creates it with correct permissions.
+
+
