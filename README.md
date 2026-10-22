@@ -198,6 +198,7 @@ make deploy
   - **espocrm-redis** (redis:7-alpine) — AOF persistence, 128MB max memory, allkeys-lru eviction
 - Volumes: espocrm_data, espocrm_custom, espocrm_client, espocrm_db_data, espocrm_redis_data
 - **Known issue:** First deploy requires clean volumes. If volumes contain stale data from a failed install, EspoCRM will crash-loop. Fix: remove volumes and redeploy.
+- **Job queue:** `docker exec espocrm php cron.php` is scheduled every minute via root's crontab (task `espocrm-cron` in `roles/espocrm/tasks/main.yml`). Without this, EspoCRM's internal job queue (lead-assignment notification emails, etc.) just accumulates as "Pending" forever — the Admin panel will show "Scheduled jobs are not running" if this cron entry is ever missing. Logs: `/var/log/espocrm-cron.log`.
 
 ---
 
@@ -211,7 +212,7 @@ File: `vault/secrets.yml` (encrypted with `ansible-vault`)
 | `espocrm_db_root_password` | MariaDB root password |
 | `espocrm_admin_user` | EspoCRM admin username (default: admin) |
 | `espocrm_admin_password` | EspoCRM admin password |
-| `espocrm_smtp_*` | SMTP config for outgoing mail |
+| `espocrm_smtp_*` | SMTP config for outgoing mail — server/port/username/password/security. **Must be set for EspoCRM's native notification emails (e.g. lead-assignment alerts) to work at all** — these default to empty strings in `roles/espocrm/templates/docker-compose.yml.j2`, and an unset vault entry silently deploys with no SMTP relay configured (Admin → Outbound Emails will show a blank Server field). Currently wired to the project's SMTP2GO account (`mail.smtp2go.com`, port 2525, TLS) — see SMTP2GO's Sending → SMTP Users for the `educollege.in` user. |
 | `traefik_dashboard_auth` | Basic auth hash for Traefik dashboard |
 | `cloudflare_email` | Cloudflare account email |
 | `cloudflare_api_token` | Cloudflare API token (Zone:DNS:Edit) |
@@ -356,5 +357,4 @@ ssh deploy@200.97.165.13 'sudo tail -50 /var/log/espocrm-backup.log'
 7. **The 418 HTTP status** from curl is EspoCRM's CSRF protection — not an error. Browsers get HTTP 200.
 8. **Traefik dashboard auth** is auto-generated on first deploy. Password saved at `/opt/traefik/.dashboard-password` on the VPS.
 9. **Permissions:** `/opt/traefik/letsencrypt/acme.json` must be 0600. The deploy creates it with correct permissions.
-
-
+10. **"New Lead Received" team notification emails do NOT come from EspoCRM's SMTP.** They're sent by an external Make.com (Integromat) scenario, triggered by a native EspoCRM Webhook (Admin → Webhooks, event `Lead.create`, API user `lpu-ad-page`) posting to `https://hook.eu1.make.com/34qoyhp7aefdumrjbb6p8cw3381p7hk4`. That scenario calls SMTP2GO directly. If these emails stop, check the Make.com scenario's run history first (it auto-pauses after repeated errors) — EspoCRM's webhook/API user being active does not mean the Make.com side is still working. EspoCRM's own `espocrm_smtp_*` config (see Vault Secrets above) is a separate, independent path used only for EspoCRM's native notifications (e.g. lead-assignment emails to the assigned rep).

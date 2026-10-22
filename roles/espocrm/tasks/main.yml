@@ -61,6 +61,15 @@
   retries: 20
   delay: 6
 
+- name: Schedule EspoCRM job queue processor (cron.php)
+  ansible.builtin.cron:
+    name: "espocrm-cron"
+    user: root
+    minute: "*"
+    job: >
+      docker exec espocrm php cron.php
+      >> /var/log/espocrm-cron.log 2>&1
+
 - name: EspoCRM deployment status
   ansible.builtin.debug:
     msg:
@@ -70,4 +79,5 @@
       - "Complete setup at https://{{ domain }}/"
       - "Default admin: {{ espocrm_admin_user | default('admin') }}"
       - "Database volume: espocrm_db_data"
+      - "Job queue: cron.php runs every minute (root crontab, logs at /var/log/espocrm-cron.log)"
       - "Run 'make backup' to set up automated backups"
