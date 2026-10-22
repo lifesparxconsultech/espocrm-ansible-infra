@@ -69,7 +69,7 @@ jobs:
       - name: Run yamllint
         run: >
           yamllint
-          -d "{extends: default, rules: {line-length: {max: 160}, document-start: disable, truthy: disable}}"
+          -d "{extends: default, ignore: ['.ansible/'], rules: {line-length: {max: 160}, document-start: disable, truthy: disable}}"
           .
 
   # ============================================================
