@@ -33,7 +33,6 @@ on:
           - traefik
           - deploy
           - backup
-          - rekey-vault
 
 env:
   ANSIBLE_HOST_KEY_CHECKING: 'false'
@@ -101,50 +100,13 @@ jobs:
           done
 
   # ============================================================
-  # REKEY VAULT — one-off manual recovery, remove after use
-  # ============================================================
-  rekey-vault:
-    name: Rekey Vault (one-off recovery)
-    runs-on: ubuntu-24.04
-    if: github.event_name == 'workflow_dispatch' && inputs.playbook == 'rekey-vault'
-    environment: production
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Ansible
-        run: pip install ansible
-
-      - name: Rekey vault
-        env:
-          OLD: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
-          NEW: ${{ secrets.ANSIBLE_VAULT_PASSWORD_NEW }}
-        run: |
-          echo "$OLD" > /tmp/old_pass
-          echo "$NEW" > /tmp/new_pass
-          ansible-vault rekey vault/secrets.yml --vault-password-file /tmp/old_pass --new-vault-password-file /tmp/new_pass
-          rm -f /tmp/old_pass /tmp/new_pass
-
-      - name: Upload rekeyed vault
-        uses: actions/upload-artifact@v4
-        with:
-          name: rekeyed-vault
-          path: vault/secrets.yml
-          retention-days: 1
-
-  # ============================================================
   # DEPLOY — runs Ansible playbook against VPS
   # ============================================================
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-24.04
     needs: [lint, syntax]
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.playbook != 'rekey-vault')
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     environment: production
     concurrency: production
     steps:
