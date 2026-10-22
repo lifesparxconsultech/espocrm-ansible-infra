@@ -107,6 +107,7 @@ jobs:
     name: Rekey Vault (one-off recovery)
     runs-on: ubuntu-24.04
     if: github.event_name == 'workflow_dispatch' && inputs.playbook == 'rekey-vault'
+    environment: production
     steps:
       - name: Checkout
         uses: actions/checkout@v4
