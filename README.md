@@ -36,6 +36,20 @@ Hostinger VPS behind Cloudflare, with GitHub Actions CI/CD.
 
 **Networks:** `traefik_web` (external, 172.20.0.0/24) + `backend` (internal, 172.21.0.0/24)
 
+**This repo is NOT the only thing on this VPS.** `hrms.educollege.in` and
+`quiz.educollege.in` (Next.js apps, their own Postgres DBs) also run here,
+deployed independently out of `/home/deploy/hrms/` and `/home/deploy/quiz/`
+— not by this repo's Ansible/CI. They share the same Traefik instance for
+routing. Their routes live in a **separate file**,
+`/opt/traefik/dynamic/apps.yml` on the VPS — intentionally outside this
+repo's `roles/traefik/templates/dynamic.yml.j2`, so a `company-infra`
+deploy can never touch their routing and a change to their routing can
+never need to touch this repo. (This split exists because they used to be
+routed via Traefik's Docker-provider labels, which stopped working when
+the Docker provider was removed — see Notes & Gotchas #12 for the full
+incident. `apps.yml` currently exists only on the server with no version
+control; ideally hrms/quiz's own deploy process should own and manage it.)
+
 **Hostnames:**
 
 | Service | URL | Auth |
@@ -404,3 +418,5 @@ ssh deploy@200.97.165.13 'sudo tail -50 /var/log/espocrm-backup.log'
     4. Admin → Webhooks — is the `Lead.create` webhook to Make.com still `Is Active`? (Doesn't confirm Make.com itself is working — just that EspoCRM is still firing it.)
     5. SMTP2GO dashboard → Reports → Activity — are emails actually showing `Delivered`, and is the monthly volume cap close to being hit?
     6. If SMTP shows configured but nothing sends: check `docker logs espocrm` for SMTP connection errors, and confirm the cron job (item 2) is actually running — a correct SMTP config with a dead job queue still won't send anything.
+
+12. **`hrms.educollege.in` / `quiz.educollege.in` returning a plain "404 page not found"** (not styled like either app's own 404 — this is Traefik's own fallback when no router matches the Host header) **means Traefik has no route for them, not that the apps themselves are broken.** Confirmed Oct 2026: both apps still had `traefik.*` Docker labels in their own `docker-compose.yml`/`docker-compose.prod.yml`, but this server's Traefik stopped reading Docker labels entirely once the Docker provider was removed (see gotcha #3) — only `/opt/traefik/dynamic/*.yml` (file provider, `watch: true`) is read now. Their labels had been silently inert since that switch; this was not caused by any `company-infra` deploy. Fix was to add their routes to `/opt/traefik/dynamic/apps.yml` — a separate file from this repo's `dynamic.yml`, **deliberately not managed by this repo**, so a future `company-infra` deploy can't wipe them again and a future hrms/quiz change doesn't need to touch this repo. See the Networks note under Architecture above for the full rationale. If either app's routing breaks again, check `/opt/traefik/dynamic/apps.yml` directly on the VPS before assuming it's a `company-infra`/CRM-related problem.
