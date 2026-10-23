@@ -277,6 +277,19 @@ View: `ansible-vault view vault/secrets.yml --vault-password-file <(echo 'the pa
 - Direct access: `docker exec -it espocrm-db mariadb -u espocrm -p espocrm`
 - Root access: `docker exec -it espocrm-db mariadb -u root -p`
 
+### Version / PHP upgrades
+- `espocrm_version` in `inventory/group_vars/all.yml` pins the Docker
+  image tag — **and therefore the PHP version bundled inside it.**
+  EspoCRM only actively rebuilds tags for its current major line; an old
+  pinned tag (e.g. `8.4`, last rebuilt 2024-10-14) never receives a newer
+  PHP patch no matter how often the container is recreated.
+- See [[upgrade-espocrm-php-version]] for the full, tested procedure —
+  **never jump more than one version step per deploy** (confirmed: a
+  multi-version jump reliably fails and breaks the live app). Each hop
+  also needs a manual post-deploy step (the code-copy workaround for the
+  bootstrap.php bug — see [[fix-espocrm-crash-loop]]); this isn't
+  automated in the Ansible role yet.
+
 ---
 
 ## Backup & Restore
@@ -419,4 +432,30 @@ ssh deploy@200.97.165.13 'sudo tail -50 /var/log/espocrm-backup.log'
     5. SMTP2GO dashboard → Reports → Activity — are emails actually showing `Delivered`, and is the monthly volume cap close to being hit?
     6. If SMTP shows configured but nothing sends: check `docker logs espocrm` for SMTP connection errors, and confirm the cron job (item 2) is actually running — a correct SMTP config with a dead job queue still won't send anything.
 
-12. **`hrms.educollege.in` / `quiz.educollege.in` returning a plain "404 page not found"** (not styled like either app's own 404 — this is Traefik's own fallback when no router matches the Host header) **means Traefik has no route for them, not that the apps themselves are broken.** Confirmed Oct 2026: both apps still had `traefik.*` Docker labels in their own `docker-compose.yml`/`docker-compose.prod.yml`, but this server's Traefik stopped reading Docker labels entirely once the Docker provider was removed (see gotcha #3) — only `/opt/traefik/dynamic/*.yml` (file provider, `watch: true`) is read now. Their labels had been silently inert since that switch; this was not caused by any `company-infra` deploy. Fix was to add their routes to `/opt/traefik/dynamic/apps.yml` — a separate file from this repo's `dynamic.yml`, **deliberately not managed by this repo**, so a future `company-infra` deploy can't wipe them again and a future hrms/quiz change doesn't need to touch this repo. See the Networks note under Architecture above for the full rationale. If either app's routing breaks again, check `/opt/traefik/dynamic/apps.yml` directly on the VPS before assuming it's a `company-infra`/CRM-related problem.
+12. **The EspoCRM Lead Formula script (gotcha #10) fails the ENTIRE Lead
+    save, not just the notification, if SMTP is unreachable or
+    misconfigured** — confirmed Oct 2026 while testing a PHP upgrade on
+    a staging clone. `ext\email\send()` throws a hard exception on
+    failure, and the before-save hook propagates it, aborting the whole
+    transaction (`HTTP 500` back to whatever submitted the lead). This
+    is a pre-existing EspoCRM Formula-engine property, not specific to
+    any version — it means **if SMTP2GO is ever down, degraded, or over
+    its 1,000/month cap at the exact moment a lead comes in, the lead
+    fails to save entirely**, not just a missed notification email.
+    Worth a dedicated fix independent of any version upgrade: wrap the
+    Formula script's `ext\email\send()` call in error handling, or move
+    the notification through the job queue instead of calling it
+    synchronously.
+
+13. **`espocrm_version` pins both the EspoCRM app version AND the PHP
+    version bundled inside that Docker image — and old tags are frozen
+    forever.** Discovered Oct 2026 chasing a critical PHP RCE advisory:
+    the then-pinned `8.4` tag's PHP (8.2.24) hadn't been patched since
+    2024-10-14, because EspoCRM stopped rebuilding that tag once 8.4
+    stopped being their current major line. Recreating the container
+    does nothing for this — the image itself is stale. See
+    [[upgrade-espocrm-php-version]] for the full tested upgrade
+    procedure and why it must be done one version step at a time, never
+    as a single big jump (confirmed to break the app otherwise).
+
+14. **`hrms.educollege.in` / `quiz.educollege.in` returning a plain "404 page not found"** (not styled like either app's own 404 — this is Traefik's own fallback when no router matches the Host header) **means Traefik has no route for them, not that the apps themselves are broken.** Confirmed Oct 2026: both apps still had `traefik.*` Docker labels in their own `docker-compose.yml`/`docker-compose.prod.yml`, but this server's Traefik stopped reading Docker labels entirely once the Docker provider was removed (see gotcha #3) — only `/opt/traefik/dynamic/*.yml` (file provider, `watch: true`) is read now. Their labels had been silently inert since that switch; this was not caused by any `company-infra` deploy. Fix was to add their routes to `/opt/traefik/dynamic/apps.yml` — a separate file from this repo's `dynamic.yml`, **deliberately not managed by this repo**, so a future `company-infra` deploy can't wipe them again and a future hrms/quiz change doesn't need to touch this repo. See the Networks note under Architecture above for the full rationale. If either app's routing breaks again, check `/opt/traefik/dynamic/apps.yml` directly on the VPS before assuming it's a `company-infra`/CRM-related problem.

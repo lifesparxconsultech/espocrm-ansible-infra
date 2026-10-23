@@ -49,7 +49,75 @@
     pull: always
     remove_orphans: true
 
+- name: Check if EspoCRM application code is present (bootstrap.php)
+  # On 8.x/9.x images, /var/www/html is NOT a named volume — only data/
+  # custom/client are. A fresh container from any image-tag swap starts
+  # with bootstrap.php missing, which crash-loops the upgrade/entrypoint
+  # (see .claude/skills/fix-espocrm-crash-loop). 10.x images bake the
+  # full app into /var/www/html at build time, so this check is a no-op
+  # there (bootstrap.php already present, block below is skipped).
+  ansible.builtin.command: docker exec espocrm test -f /var/www/html/bootstrap.php
+  register: espocrm_bootstrap_check
+  failed_when: false
+  changed_when: false
+
+- name: Work around known Docker-image bug (app code not copied into a fresh container)
+  when: espocrm_bootstrap_check.rc != 0
+  block:
+    - name: Disable restart policy while fixing the container (avoid racing a crash-loop)
+      ansible.builtin.command: docker update --restart=no espocrm
+
+    - name: Clean any leftover extraction temp dir
+      ansible.builtin.file:
+        path: /tmp/espocrm_code_fix
+        state: absent
+
+    - name: Remove any leftover throwaway source container
+      ansible.builtin.command: docker rm -f espocrm-src-fix
+      failed_when: false
+      changed_when: false
+
+    - name: Create throwaway container to extract app code from
+      ansible.builtin.command: docker create --name espocrm-src-fix espocrm/espocrm:{{ espocrm_version }}
+
+    - name: Extract app code, excluding doc folders with known-broken vendor symlinks
+      # At least one real image (9.2.7-apache) ships a broken symlink
+      # under a vendor package's docs/ folder that trips Docker cp's
+      # symlink-escape safety check. Docs aren't needed at runtime.
+      ansible.builtin.shell: |
+        set -o pipefail
+        mkdir -p /tmp/espocrm_code_fix
+        docker cp espocrm-src-fix:/usr/src/espocrm/. - | \
+          tar -xf - -C /tmp/espocrm_code_fix --exclude="*/docs/*" --exclude="*/doc/*"
+      args:
+        executable: /bin/bash
+
+    - name: Remove throwaway source container
+      ansible.builtin.command: docker rm espocrm-src-fix
+
+    - name: Copy extracted code into the live container
+      ansible.builtin.command: docker cp /tmp/espocrm_code_fix/. espocrm:/var/www/html/
+
+    - name: Fix ownership
+      ansible.builtin.command: docker exec --user root espocrm chown -R www-data:www-data /var/www/html
+
+    - name: Clean up extraction temp dir
+      ansible.builtin.file:
+        path: /tmp/espocrm_code_fix
+        state: absent
+
+    - name: Ensure container is started (it may have stopped while restart was disabled)
+      ansible.builtin.command: docker start espocrm
+      failed_when: false
+      changed_when: false
+
+    - name: Re-enable restart policy
+      ansible.builtin.command: docker update --restart=unless-stopped espocrm
+
 - name: Wait for EspoCRM to initialize
+  # Higher retry ceiling than before: a genuine version upgrade (not just
+  # a routine redeploy) can take 4-5 minutes with zero log output in
+  # between — confirmed during Oct 2026 staging tests, not a hang.
   ansible.builtin.uri:
     url: http://localhost/api/v1/
     return_content: false
@@ -58,7 +126,7 @@
     follow_redirects: safe
   register: espocrm_check
   until: espocrm_check is success
-  retries: 20
+  retries: 80
   delay: 6
 
 - name: Schedule EspoCRM job queue processor (cron.php)
