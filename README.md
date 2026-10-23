@@ -230,6 +230,7 @@ File: `vault/secrets.yml` (encrypted with `ansible-vault`)
 | `traefik_dashboard_auth` | Basic auth hash for Traefik dashboard |
 | `cloudflare_email` | Cloudflare account email |
 | `cloudflare_api_token` | Cloudflare API token (Zone:DNS:Edit) |
+| `discord_webhook` | Discord webhook URL, templated into `/opt/backup/health-check.sh` (every 3h) and `/opt/backup/db-backup.sh` (daily) on deploy — **a dead/deleted webhook here fails silently**: the backup/health-check scripts still run fine, only the Discord POST fails (logs `{"message":"Unknown Webhook","code":10015}` to `/var/log/espocrm-backup.log` right after a backup line, or nothing at all for the health check, which doesn't log). See Troubleshooting → "Discord alerts silently not posting" and the `diagnose-discord-alerts` skill. |
 
 **Vault password:** stored in the team password manager only — **never write the literal password in this file or any committed file again.** A previous version of this README documented the password in plain text here; it leaked (see commit `88ce59a`), was rotated, the rotation was never re-documented, and the password was later lost entirely (recovered Oct 2026 — see "Vault password recovery" under Troubleshooting). Do not repeat that mistake: if you rotate this password, update the team password manager and the `ANSIBLE_VAULT_PASSWORD` GitHub secret, and stop there.
 
@@ -251,14 +252,14 @@ View: `ansible-vault view vault/secrets.yml --vault-password-file <(echo 'the pa
 | `SSH_KNOWN_HOSTS` | `ssh-keyscan 200.97.165.13` output |
 | `SSH_KEY_PASSPHRASE` | Passphrase for the SSH key |
 | `ANSIBLE_VAULT_PASSWORD` | Current vault password — see team password manager, not written here (see Vault Secrets above for why) |
+| `BASE_DOMAIN` | `educollege.in` — not sensitive, but it actually lives here as a secret (not a variable, despite how this table used to document it); `deploy.yml` reads it as `secrets.BASE_DOMAIN` |
+| `DISCORD_WEBHOOK` | Discord webhook URL for the CI/CD `notify` job (deploy success/failure pings — separate from the vault's `discord_webhook` used by the on-server health-check/backup cron). **Must be read as `secrets.DISCORD_WEBHOOK`** — `deploy.yml`'s `notify` job also needs `environment: production` declared on it, or this resolves to empty even though the secret exists. Confirmed broken this way (always empty → job silently `skipped`) from this workflow's first run in July 2026 until fixed Oct 2026 — see Troubleshooting → "Discord alerts silently not posting". |
 
 **Variables (Settings → Environments → production → Environment variables):**
 
 | Variable | Value |
 |---|---|
 | `DOMAIN` | `crm.educollege.in` |
-| `BASE_DOMAIN` | `educollege.in` |
-| `DISCORD_WEBHOOK` | Discord webhook URL (optional) |
 
 ---
 
@@ -381,6 +382,26 @@ Confirmed recoverable without resetting any live credential, as long as the `ANS
 
 If `ANSIBLE_VAULT_PASSWORD` itself no longer decrypts either, the vault is genuinely unrecoverable — the fallback is rebuilding it from scratch with fresh values (new DB password, new admin password, new Cloudflare token, new Traefik auth, new SMTP creds), applied carefully to avoid locking out live access. Every value currently in the vault can be independently re-set or read from the live system except the DB/admin passwords, which would need a reset via `docker exec espocrm-db mariadb` / EspoCRM's CLI.
 
+### Discord alerts silently not posting
+Three separate alert paths, each with its own failure mode — confirmed during the Oct 2026 incident where all of them had drifted at once without anyone noticing, because every failure mode here is silent by design (a backup/health-check/deploy that still succeeds, just without the ping):
+
+1. **CI/CD deploy notify (`notify` job in `deploy.yml`) never fires, success or failure.**
+   Check: `gh run list --limit 5` — if `Notify Discord` shows as skipped with ~0s runtime on every run, the job's condition isn't resolving. Two independent causes, both hit during this incident:
+   - Code read `vars.DISCORD_WEBHOOK` while the value was stored as an environment **secret** — `vars` and `secrets` are separate GitHub Actions contexts even with an identical name; the "wrong" one always reads as empty, with no error anywhere. Fix is in code now (`secrets.DISCORD_WEBHOOK`), not something to re-break by moving the value to a variable later without also reverting the workflow.
+   - Even with the right context name, an **environment-scoped** secret is invisible to a job that doesn't declare `environment: production` on itself — `deploy`'s job already had it, `notify` didn't. Both must have it.
+   - Verify fully fixed by checking `gh run view <id> --log | grep -A2 "Send success notification"` — a healthy run shows no output after the `curl` block; a dead webhook or unreadable secret both show *something* (an API error body, or nothing posted with no error — check Discord directly either way).
+2. **VPS health check (every 3h) and DB backup notification (daily) go silent together.**
+   Both are templated from the vault's `discord_webhook` into `/opt/backup/health-check.sh` and `/opt/backup/db-backup.sh` on deploy, so they break and recover together. Check `ssh crm-server 'sudo tail -60 /var/log/espocrm-backup.log'` — `db-backup.sh` logs its curl response inline; `{"message":"Unknown Webhook","code":10015}` right after a `Backup: ...` line means the webhook itself is dead (Discord-side deletion/rotation, independent of anything in this repo). `health-check.sh` doesn't log its own output anywhere (its cron entry has no `>>` redirect), so a silent multi-day gap in the Discord channel itself is the only symptom — compare the timestamp of the last message there against the expected `:00/:03/:06...` UTC cadence.
+   - Quiz/HRMS monitor alerts (`quiz-monitor.sh`, `hrms-monitor.sh`) are a **different system entirely** — separately deployed (educollege-hrms project, not this repo), reading their own webhook files (`/opt/backup/discord-webhook`, `/opt/backup/hrms-webhook`) directly. They keep working even when the vault's `discord_webhook` dies, and their continuing to work is not evidence the vault webhook is fine.
+   - To manually force one and check Discord immediately: `ssh crm-server '/opt/backup/health-check.sh'` fails with `exit=126, Permission denied` as the `deploy` user — expected, the script is `root`-owned `0700` by design (it contains the webhook URL) and the real cron entry runs as `root`. Use `ssh root@<ip> '/opt/backup/health-check.sh'` (password auth) or `ssh crm-server 'sudo /opt/backup/health-check.sh'` instead.
+3. **Fixing a dead webhook, either path:** create a fresh one in Discord (channel → Integrations → Webhooks → New Webhook), **verify it live before wiring it in anywhere** —
+   ```bash
+   curl -s -X POST "<new webhook url>" -H "Content-Type: application/json" \
+     -d '{"content":"test"}' -w "\nHTTP_STATUS:%{http_code}\n"
+   # expect HTTP_STATUS:204 and the message to actually appear in Discord
+   ```
+   then: `gh secret set DISCORD_WEBHOOK --env production --body "<url>"` for the CI/CD path, and `ansible-vault edit vault/secrets.yml` (update `discord_webhook:`) + `git commit`/`push` + `gh workflow run deploy.yml -f playbook=backup` for the VPS cron path (the `backup` playbook only re-templates backup/health-check scripts and cron entries — never touches the `espocrm` container, safe to run anytime). Reusing the same webhook for both is fine and simpler than tracking two.
+
 ### Docker provider errors (Traefik logs)
 `client version 1.24 is too old. Minimum supported API version is 1.40`  
 This is expected — Docker 29.x enforces API 1.40 minimum. We use file-based routing (not Docker provider), so these errors don't affect functionality. The docker-proxy container and Docker provider were removed.
@@ -458,4 +479,8 @@ ssh deploy@200.97.165.13 'sudo tail -50 /var/log/espocrm-backup.log'
     procedure and why it must be done one version step at a time, never
     as a single big jump (confirmed to break the app otherwise).
 
-14. **`hrms.educollege.in` / `quiz.educollege.in` returning a plain "404 page not found"** (not styled like either app's own 404 — this is Traefik's own fallback when no router matches the Host header) **means Traefik has no route for them, not that the apps themselves are broken.** Confirmed Oct 2026: both apps still had `traefik.*` Docker labels in their own `docker-compose.yml`/`docker-compose.prod.yml`, but this server's Traefik stopped reading Docker labels entirely once the Docker provider was removed (see gotcha #3) — only `/opt/traefik/dynamic/*.yml` (file provider, `watch: true`) is read now. Their labels had been silently inert since that switch; this was not caused by any `company-infra` deploy. Fix was to add their routes to `/opt/traefik/dynamic/apps.yml` — a separate file from this repo's `dynamic.yml`, **deliberately not managed by this repo**, so a future `company-infra` deploy can't wipe them again and a future hrms/quiz change doesn't need to touch this repo. See the Networks note under Architecture above for the full rationale. If either app's routing breaks again, check `/opt/traefik/dynamic/apps.yml` directly on the VPS before assuming it's a `company-infra`/CRM-related problem.
+14. **GitHub Actions `vars.*` and `secrets.*` are separate stores, even for an identical name — reading the wrong one resolves to an empty string with no error, anywhere.** Confirmed Oct 2026: `deploy.yml`'s `notify` job checked `vars.DISCORD_WEBHOOK != ''` while the value had only ever been stored as an environment *secret*, so the job showed as cleanly `skipped` on literally every run since this workflow was created in July 2026 — five months of deploys with zero Discord pings, no error, nothing to grep for. Compounding it: an **environment-scoped** secret is only visible to a job that itself declares `environment: production` — `deploy` had it, `notify` didn't, so switching the context name alone wasn't enough either. See Troubleshooting → "Discord alerts silently not posting" and the `diagnose-discord-alerts` skill for the full fix and how to verify it actually took.
+
+15. **Discord webhooks can go dead independently of anything in this repo** (deleted/rotated on Discord's side) **— and it happened to two unrelated webhooks at once, Oct 2026.** Both the CI/CD `notify` job's webhook and the vault's `discord_webhook` (used by the VPS health-check/DB-backup cron) started returning `{"message":"Unknown Webhook","code":10015}` within the same ~24h window, silently — backups and health checks kept running fine, only the Discord POST failed. Nothing about a normal deploy (even the 5-hop EspoCRM version bump that happened the same day) touches either webhook value, so don't assume a deploy caused it; assume the webhook itself was invalidated and verify with a direct `curl` test (see Troubleshooting) before touching any config.
+
+16. **`hrms.educollege.in` / `quiz.educollege.in` returning a plain "404 page not found"** (not styled like either app's own 404 — this is Traefik's own fallback when no router matches the Host header) **means Traefik has no route for them, not that the apps themselves are broken.** Confirmed Oct 2026: both apps still had `traefik.*` Docker labels in their own `docker-compose.yml`/`docker-compose.prod.yml`, but this server's Traefik stopped reading Docker labels entirely once the Docker provider was removed (see gotcha #3) — only `/opt/traefik/dynamic/*.yml` (file provider, `watch: true`) is read now. Their labels had been silently inert since that switch; this was not caused by any `company-infra` deploy. Fix was to add their routes to `/opt/traefik/dynamic/apps.yml` — a separate file from this repo's `dynamic.yml`, **deliberately not managed by this repo**, so a future `company-infra` deploy can't wipe them again and a future hrms/quiz change doesn't need to touch this repo. See the Networks note under Architecture above for the full rationale. If either app's routing breaks again, check `/opt/traefik/dynamic/apps.yml` directly on the VPS before assuming it's a `company-infra`/CRM-related problem.
