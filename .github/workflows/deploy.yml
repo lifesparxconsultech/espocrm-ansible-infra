@@ -166,12 +166,13 @@ jobs:
     name: Notify Discord
     runs-on: ubuntu-24.04
     needs: [deploy]
-    if: always() && vars.DISCORD_WEBHOOK != ''
+    if: always()
+    environment: production
     steps:
       - name: Send success notification
         if: needs.deploy.result == 'success'
         run: |
-          curl -s -X POST "${{ vars.DISCORD_WEBHOOK }}" \
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
             -H "Content-Type: application/json" \
             -d '{
               "embeds": [{
@@ -182,8 +183,8 @@ jobs:
                   {"name": "Repo", "value": "${{ github.repository }}", "inline": true},
                   {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true},
                   {"name": "EspoCRM", "value": "https://${{ vars.DOMAIN }}"},
-                  {"name": "Dashboard", "value": "https://traefik.${{ vars.BASE_DOMAIN }}", "inline": true},
-                  {"name": "Monitoring", "value": "https://status.${{ vars.BASE_DOMAIN }}", "inline": true}
+                  {"name": "Dashboard", "value": "https://traefik.${{ secrets.BASE_DOMAIN }}", "inline": true},
+                  {"name": "Monitoring", "value": "https://status.${{ secrets.BASE_DOMAIN }}", "inline": true}
                 ]
               }]
             }'
@@ -191,7 +192,7 @@ jobs:
       - name: Send failure notification
         if: needs.deploy.result == 'failure'
         run: |
-          curl -s -X POST "${{ vars.DISCORD_WEBHOOK }}" \
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
             -H "Content-Type: application/json" \
             -d '{
               "embeds": [{
