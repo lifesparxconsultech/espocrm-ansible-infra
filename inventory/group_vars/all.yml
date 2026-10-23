@@ -12,6 +12,6 @@ acme_email: skaushik222222@gmail.com
 docker_user: deploy
 
 # EspoCRM
-espocrm_version: "9.2.7-apache"
+espocrm_version: "9.3-apache"
 espocrm_db_name: espocrm
 espocrm_db_user: espocrm
