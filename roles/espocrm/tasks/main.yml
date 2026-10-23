@@ -96,10 +96,9 @@
       ansible.builtin.command: docker rm espocrm-src-fix
 
     - name: Copy extracted code into the live container
+      # docker cp works on a stopped container too, so this is safe to run
+      # before the "ensure started" step below.
       ansible.builtin.command: docker cp /tmp/espocrm_code_fix/. espocrm:/var/www/html/
-
-    - name: Fix ownership
-      ansible.builtin.command: docker exec --user root espocrm chown -R www-data:www-data /var/www/html
 
     - name: Clean up extraction temp dir
       ansible.builtin.file:
@@ -107,9 +106,29 @@
         state: absent
 
     - name: Ensure container is started (it may have stopped while restart was disabled)
+      # MUST run before "Fix ownership" below - docker exec requires a
+      # running container, and the container commonly stops on its own
+      # here (it briefly crash-loops without app code present, and with
+      # restart disabled it just stays stopped instead of retrying).
       ansible.builtin.command: docker start espocrm
+      register: espocrm_start_result
+      failed_when: false
+      changed_when: espocrm_start_result.rc == 0
+
+    - name: Wait for the container to actually be running before chown
+      # Simple "is it up" probe (docker exec fails on a stopped
+      # container) - avoids any Jinja-vs-Go-template brace collision
+      # that docker inspect's -f format string would risk here.
+      ansible.builtin.command: docker exec espocrm true
+      register: espocrm_running_check
+      until: espocrm_running_check.rc == 0
+      retries: 10
+      delay: 2
       failed_when: false
       changed_when: false
+
+    - name: Fix ownership
+      ansible.builtin.command: docker exec --user root espocrm chown -R www-data:www-data /var/www/html
 
     - name: Re-enable restart policy
       ansible.builtin.command: docker update --restart=unless-stopped espocrm
